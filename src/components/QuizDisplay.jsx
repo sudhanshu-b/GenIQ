@@ -35,10 +35,18 @@ const QuizDisplay = ({ quizContent, onFinish }) => {
   const parseTextContent = (contentStr) => {
     if (!contentStr || typeof contentStr !== 'string') return [];
     
+    // Clean the content by removing all duplicate answer key sections
+    // Only keep content up to the first occurrence of "Answer Key:"
+    const parts = contentStr.split(/\*\*Answer Key:\*\*/);
+    if (parts.length <= 1) return []; // No answer key found
+    
+    const questionsContent = parts[0];
+    const answerKeyContent = parts[1];
+    
     const parsedQuestions = [];
     
     // Split content by question markers
-    const questionBlocks = contentStr.split(/\*\*\d+\./);
+    const questionBlocks = questionsContent.split(/\*\*\d+\./);
     
     // Skip the first element if it's empty (often the case)
     const startIndex = questionBlocks[0].trim() === '' ? 1 : 0;
@@ -57,14 +65,18 @@ const QuizDisplay = ({ quizContent, onFinish }) => {
       const options = [];
       const optionsText = block.substring(questionMatch[0].length);
       
-      // Match each option individually
-      const optionRegex = /([a-d])\)(.*?)(?=\n\s*[a-d]\)|\n\n|$)/gs;
+      // Regex to extract options
+      const optionRegex = /([a-d]\))(.*?)(?=\s+[a-d]\)|$)/gs;
       let optionMatch;
       
       while ((optionMatch = optionRegex.exec(optionsText)) !== null) {
-        const optionLetter = optionMatch[1];
+        const optionLetter = optionMatch[1].charAt(0); // Extract just the letter
         const optionText = optionMatch[2].trim();
-        options.push({ letter: optionLetter, text: optionText });
+        
+        // Make sure this isn't part of an answer key that got mixed in
+        if (!optionText.includes("*Explanation:") && !optionText.includes("Answer Key:")) {
+          options.push({ letter: optionLetter, text: optionText });
+        }
       }
       
       parsedQuestions.push({
@@ -74,16 +86,15 @@ const QuizDisplay = ({ quizContent, onFinish }) => {
         correctLetter: null // Will be filled in later
       });
     }
-
+    
     // Extract answer key
-    const answerSection = contentStr.split('**Answer Key:**')[1] || '';
-    const answerMatches = answerSection.matchAll(/(\d+)\.\s+([a-d])\)/g);
+    const answerMatches = answerKeyContent.matchAll(/(\d+)\.\s+([a-d])\)(.*?)(?=\n\d+\.|$)/gs);
     
     for (const match of answerMatches) {
       const questionNum = parseInt(match[1]) - 1;
       const correctLetter = match[2];
       
-      if (parsedQuestions[questionNum]) {
+      if (questionNum >= 0 && questionNum < parsedQuestions.length) {
         parsedQuestions[questionNum].correctLetter = correctLetter;
         
         // Find the index of the correct answer
@@ -93,8 +104,10 @@ const QuizDisplay = ({ quizContent, onFinish }) => {
         
         parsedQuestions[questionNum].correctAnswer = correctIndex;
         
-        // Try to find explanation
-        const explanationMatch = answerSection.split(`${match[0]}`)[1]?.match(/\*Explanation:(.*?)(?=\n\d+\.|$)/s);
+        // Extract explanation
+        const explanationText = match[3] || '';
+        const explanationMatch = explanationText.match(/\*Explanation:(.*?)(?=\n\d+\.|$)/s);
+        
         if (explanationMatch) {
           parsedQuestions[questionNum].explanation = explanationMatch[1].trim();
         }
